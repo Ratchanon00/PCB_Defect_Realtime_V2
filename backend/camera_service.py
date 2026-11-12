@@ -41,6 +41,7 @@ class CameraService:
 
         self.stream_fps = 0.0
         self.last_inference_time = 0
+        self.frame_id = 0
 
     def start(self, camera_index=0):
         with self.lock:
@@ -50,7 +51,7 @@ class CameraService:
             self.camera_index = camera_index
             self.cap = cv2.VideoCapture(self.camera_index, cv2.CAP_DSHOW)
             if not self.cap.isOpened():
-                # Fallback without CAP_DSHOW
+
                 self.cap = cv2.VideoCapture(self.camera_index)
                 if not self.cap.isOpened():
                     self.cap = None
@@ -59,6 +60,13 @@ class CameraService:
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
             self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
             self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+            ret, init_frame = self.cap.read()
+            if ret and init_frame is not None:
+                _, buf = cv2.imencode('.jpg', init_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+                self.latest_raw_frame = init_frame.copy()
+                self.latest_annotated_jpeg = buf.tobytes()
+                self.frame_id = 1
 
             self.is_running = True
             self.thread = threading.Thread(target=self._worker_loop, daemon=True)
@@ -108,11 +116,9 @@ class CameraService:
                 time.sleep(0.01)
                 continue
 
-            # Fast detail sharpening & noise suppression (makes traces and holes razor sharp)
             blurred = cv2.GaussianBlur(frame, (0, 0), 2.0)
             frame = cv2.addWeighted(frame, 1.35, blurred, -0.35, 0)
 
-            # Apply software brightness / anti-glare adjustment if set
             if self.brightness != 0:
                 frame = cv2.convertScaleAbs(frame, alpha=1.0, beta=self.brightness)
 
@@ -128,16 +134,14 @@ class CameraService:
             with self.lock:
                 self.latest_raw_frame = frame.copy()
 
-            # Run detection if auto_detect is ON
             if self.auto_detect and (now - last_detect_time >= 0.03):
                 last_detect_time = now
                 try:
-                    # 1. Detect PCB board orientation & corners using Color Image Processing (HSV)
+
                     orient_res = check_orientation(frame)
                     corners_list = orient_res.get("corners") if orient_res else None
                     boxes = []
 
-                    # 2. If PCB is present on camera, isolate & warp it to upright 512px view
                     if corners_list and len(corners_list) == 4 and orient_res.get("orientation") not in ("NO_BOARD", "IDLE_GUIDE"):
                         pcb_pts = np.array(corners_list, dtype=np.float32)
                         w_a = np.linalg.norm(pcb_pts[2] - pcb_pts[3])
@@ -160,10 +164,8 @@ class CameraService:
                         M_warp = cv2.getPerspectiveTransform(pcb_pts, dst)
                         M_inv = cv2.getPerspectiveTransform(dst, pcb_pts)
 
-                        # Warp PCB to flat, upright rectangle (excluding background table)
                         pcb_crop = cv2.warpPerspective(frame, M_warp, (target_w, target_h))
 
-                        # Run YOLO defect detection on the zoomed-in, straightened PCB surface
                         result = run_detection(
                             img_bgr=pcb_crop,
                             conf_thresh=self.conf_thresh,
@@ -172,7 +174,6 @@ class CameraService:
                             include_images=False
                         )
 
-                        # Remap detected defect boxes back to the live camera coordinate space
                         raw_boxes = result.get("defects", [])
                         remapped_boxes = []
                         for b in raw_boxes:
@@ -200,7 +201,7 @@ class CameraService:
                         result["defects"] = remapped_boxes
                         boxes = remapped_boxes
                     else:
-                        # Full frame fallback
+
                         result = run_detection(
                             img_bgr=frame,
                             conf_thresh=self.conf_thresh,
@@ -210,18 +211,15 @@ class CameraService:
                         )
                         boxes = result.get("defects", [])
 
-                    # Draw annotations on display frame
                     model = load_yolo_model(self.model_path)
                     annotated_bgr = draw_industrial_annotations(frame, boxes, model.names)
 
-                    # Draw PCB 4-corner bounding box with top-edge status badge
                     try:
                         annotated_bgr = draw_pcb_orientation_overlay(annotated_bgr, orient_res)
                         result["orientation"] = orient_res
                     except Exception as e_or:
                         pass
 
-                    # Encode to JPEG for stream (quality 88 is crisp, high-detail without noise artifacts)
                     _, buf = cv2.imencode('.jpg', annotated_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 88])
                     jpeg_bytes = buf.tobytes()
 
@@ -231,11 +229,13 @@ class CameraService:
                     with self.lock:
                         self.latest_annotated_jpeg = jpeg_bytes
                         self.latest_telemetry = result
+                        self.frame_id += 1
 
                 except Exception as e:
                     _, buf = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
                     with self.lock:
                         self.latest_annotated_jpeg = buf.tobytes()
+                        self.frame_id += 1
             else:
                 display_frame = frame.copy()
                 try:
@@ -246,25 +246,33 @@ class CameraService:
                 _, buf = cv2.imencode('.jpg', display_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 88])
                 with self.lock:
                     self.latest_annotated_jpeg = buf.tobytes()
+                    self.frame_id += 1
 
             time.sleep(0.005)
 
-    def generate_stream(self):
-        """Yields MJPEG stream packets."""
+    async def generate_stream(self):
+        """Yields MJPEG stream packets formatted with Content-Length for Chromium."""
+        import asyncio
+        last_sent_id = -1
         while self.is_running:
             frame_bytes = None
+            cur_id = -1
             with self.lock:
                 if self.latest_annotated_jpeg:
                     frame_bytes = self.latest_annotated_jpeg
+                    cur_id = self.frame_id
 
-            if frame_bytes:
-                yield (
+            if frame_bytes and cur_id != last_sent_id:
+                last_sent_id = cur_id
+                header = (
                     b'--frame\r\n'
-                    b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n'
+                    b'Content-Type: image/jpeg\r\n'
+                    b'Content-Length: ' + str(len(frame_bytes)).encode('ascii') + b'\r\n\r\n'
                 )
-                time.sleep(0.03) # ~30 FPS limit
+                yield header + frame_bytes + b'\r\n'
+                await asyncio.sleep(0.01)
             else:
-                time.sleep(0.02)
+                await asyncio.sleep(0.02)
 
     def get_telemetry(self):
         with self.lock:
@@ -277,7 +285,7 @@ class CameraService:
                 raw = self.latest_raw_frame.copy()
 
         if raw is None:
-            # Try a direct read
+
             if self.cap and self.cap.isOpened():
                 ret, frame = self.cap.read()
                 if ret:
@@ -295,5 +303,4 @@ class CameraService:
         result["filename"] = f"Camera #{self.camera_index} Snapshot"
         return result
 
-# Global Singleton Instance
 camera_service = CameraService()

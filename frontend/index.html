@@ -3,97 +3,263 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PCB Defect Vision AI - Realtime Camera Inspection</title>
+  <title>PCB Defect Vision AI - Realtime Camera & Optical Inspection</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20261024_camera">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css?v=20261112_clean_ui">
 </head>
-<body class="dark-theme">
-  <!-- Top Navigation & System Status Bar -->
+<body class="modern-soft">
+  
+  <div class="ambient-glow glow-top-left"></div>
+  <div class="ambient-glow glow-top-right"></div>
+  <div class="ambient-glow glow-bottom-center"></div>
+
+  
   <header class="app-header">
     <div class="header-left">
       <div class="logo-box">
-        <svg class="circuit-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="2" y="2" width="20" height="20" rx="3"></rect>
-          <path d="M7 2v4M12 2v4M17 2v4M7 18v4M12 18v4M17 18v4M2 7h4M2 12h4M2 17h4M18 7h4M18 12h4M18 17h4"></path>
-          <circle cx="12" cy="12" r="3" fill="#10B981"></circle>
+        <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9"></circle>
+          <path d="M12 3a9 9 0 0 1 9 9"></path>
+          <circle cx="12" cy="12" r="3" fill="#8B5CF6"></circle>
         </svg>
       </div>
       <div class="title-meta">
-        <h1>PCB DEFECT <span class="accent-text">VISION AI</span></h1>
-        <span class="subtitle">REALTIME CAMERA & OPTICAL INSPECTION</span>
+        <h1>PCB Vision <span class="accent-text">AI</span></h1>
       </div>
     </div>
 
-    <!-- Center Mode Switcher (Live Camera vs Image Upload) -->
+    
     <div class="header-center">
-      <div class="input-mode-switcher">
-        <button id="modeLiveCamBtn" class="mode-tab-btn active">
-          <span class="mode-tab-icon">📹</span>
+      <div class="floating-nav-pill">
+        <button id="modeLiveCamBtn" class="nav-tab-btn active">
+          <span class="nav-icon">📹</span>
           <span>โหมดกล้องสด (Live Camera)</span>
         </button>
-        <button id="modeImageUploadBtn" class="mode-tab-btn">
-          <span class="mode-tab-icon">📁</span>
+        <button id="modeImageUploadBtn" class="nav-tab-btn">
+          <span class="nav-icon">📁</span>
           <span>โหมดรูปภาพ (Upload Image)</span>
         </button>
       </div>
     </div>
 
-    <!-- Right Status -->
+    
     <div class="header-right">
-      <div class="status-chip">
-        <span class="status-dot pulse-green"></span>
+      <div class="status-chip" title="สถานะการประมวลผลโมเดล AI">
+        <span class="status-dot pulse-purple"></span>
         <span class="chip-label">SYSTEM:</span>
         <span class="chip-val highlight" id="systemDeviceBadge">AI READY</span>
       </div>
+      <button id="themeToggleBtn" class="theme-toggle-pill" title="สลับโหมด ธีมมืด / ธีมสว่าง">
+        <span class="theme-icon" id="themeToggleIcon">🌙</span>
+        <span class="theme-text" id="themeToggleText">โหมดมืด</span>
+      </button>
     </div>
   </header>
 
-  <!-- Main Container -->
   <main class="main-layout">
-    <!-- Top Bar: Sample Gallery & Quick Picker (Collapsible in camera mode) -->
-    <section class="sample-bar-section" id="sampleBarSection">
-      <div class="section-headline">
-        <div class="title-with-icon">
-          <span class="icon-circle">⚡</span>
-          <span>ภาพตัวอย่างสำหรับทดสอบ (Quick Test Samples)</span>
+    
+    <section class="metrics-top-grid">
+      <div class="metric-card metric-card-defects">
+        <div class="metric-card-header">
+          <div class="m-icon-box m-icon-coral">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+          </div>
+          <span class="metric-pill" id="defectCountBadge">0 จุด</span>
         </div>
-        <button id="toggleSamplesBtn" class="mini-toggle-btn" title="ซ่อน/แสดงแถบภาพตัวอย่าง">ย่อ/ขยาย ▼</button>
+        <div class="metric-value-wrap">
+          <span class="metric-value" id="metricDefectCount">0</span>
+          <span class="metric-unit">จุด</span>
+        </div>
+        <span class="metric-sublabel">ข้อบกพร่องที่ตรวจพบ (Defects Found)</span>
       </div>
-      
-      <div class="samples-carousel" id="samplesCarousel">
-        <div class="sample-skeleton">กำลังโหลดตัวอย่าง...</div>
+
+      <div class="metric-card metric-card-latency">
+        <div class="metric-card-header">
+          <div class="m-icon-box m-icon-purple">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+            </svg>
+          </div>
+          <span class="metric-pill pill-subtle">Latency</span>
+        </div>
+        <div class="metric-value-wrap">
+          <span class="metric-value highlight-purple" id="metricInferenceTime">--</span>
+          <span class="metric-unit">ms</span>
+        </div>
+        <span class="metric-sublabel">ความเร็วประมวลผล AI (Inference Speed)</span>
+      </div>
+
+      <div class="metric-card metric-card-fps">
+        <div class="metric-card-header">
+          <div class="m-icon-box m-icon-emerald">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M23 7l-7 5 7 5V7z"></path>
+              <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+            </svg>
+          </div>
+          <span class="metric-pill pill-subtle">Live Feed</span>
+        </div>
+        <div class="metric-value-wrap">
+          <span class="metric-value" id="metricFps">--</span>
+          <span class="metric-unit">fps</span>
+        </div>
+        <span class="metric-sublabel">อัตราเฟรมกล้อง (Camera Stream Rate)</span>
+      </div>
+
+      <div class="metric-card metric-card-status">
+        <div class="metric-card-header">
+          <div class="m-icon-box m-icon-indigo">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+            </svg>
+          </div>
+          <span class="badge" id="cameraStatusBadge">🔴 กล้องปิด</span>
+        </div>
+        <div class="metric-value-wrap">
+          <span class="metric-value small-text" id="statModelName">YOLO11m</span>
+        </div>
+        <span class="metric-sublabel">โมเดลตรวจจับ (Defect Classifier)</span>
       </div>
     </section>
 
-    <!-- Inspection Workstation Area -->
+    
     <section class="workstation-grid">
-      <!-- Left Column: Controls & Inputs -->
-      <aside class="control-sidebar">
-
-        <!-- 1. LIVE CAMERA CONTROL CARD (Default Active) -->
-        <div class="card camera-card" id="cameraControlCard">
-          <div class="card-header">
-            <h3>ควบคุมกล้อง (Live Camera)</h3>
-            <span class="badge" id="cameraStatusBadge">🔴 กล้องปิดอยู่</span>
+      
+      <section class="canvas-center-section">
+        <div class="viewer-card">
+          <div class="viewer-toolbar">
+            <div class="toolbar-left">
+              <span class="viewer-badge" id="imageNameBadge">กล้องสด (Live Camera Mode)</span>
+              <span class="dimension-badge" id="imageDimBadge">0 × 0 px</span>
+            </div>
+            <div class="toolbar-actions">
+              <button id="zoomInBtn" class="tool-btn" title="ซูมเข้า">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <line x1="12" y1="5" x2="12" y2="19"></line>
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+              </button>
+              <button id="zoomOutBtn" class="tool-btn" title="ซูมออก">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+              </button>
+              <button id="resetZoomBtn" class="tool-btn" title="รีเซ็ตขนาด 100%">1:1</button>
+            </div>
           </div>
 
-          <div class="settings-group">
-            <div class="camera-device-label">
-              <span class="device-icon">⚡</span>
-              <span>กล้อง USB / Microscope (DirectShow)</span>
+          <div class="viewport-stage" id="viewportStage">
+            <div class="scanner-laser" id="scannerLaser"></div>
+            
+            <div class="camera-stream-container" id="cameraStreamContainer">
+              <img id="cameraStreamImg" class="camera-stream-image" src="" alt="Live Camera Stream" style="display: none;">
+              <video id="cameraVideo" autoplay playsinline muted style="display: none;"></video>
+              <canvas id="calibrationCanvas" class="camera-overlay-canvas" style="display: none;"></canvas>
+              
+              <div class="camera-hud-badge" id="cameraHudBadge" style="display: none;">
+                <div class="hud-item"><span class="hud-dot live-blink"></span> <span id="hudStatusText">LIVE CAM</span></div>
+                <div class="hud-item" id="hudResolutionText">1280×720</div>
+                <div class="hud-item highlight" id="hudFpsText">-- FPS</div>
+              </div>
+
+              <div class="corner-marking-banner" id="calibBanner" style="display: none;">
+                <span id="calibBannerText">คลิกจุดที่ 1/4: บนซ้าย (TL)</span>
+                <button id="miniCancelCalibBtn" class="mini-cancel-btn">ยกเลิก</button>
+              </div>
+            </div>
+
+            <div class="stage-transform-container" id="stageContainer" style="display: none;">
+              <img id="mainDisplayImg" class="viewport-image" src="" alt="PCB Inspection View" style="display: none;">
+              <div class="split-view-container" id="splitViewContainer" style="display: none;">
+                <div class="split-pane">
+                  <div class="pane-label">ภาพต้นฉบับ (Original)</div>
+                  <img id="splitOriginalImg" class="split-img" src="" alt="Original PCB">
+                </div>
+                <div class="split-pane">
+                  <div class="pane-label">ผลการตรวจจับ AI (Annotated)</div>
+                  <img id="splitAnnotatedImg" class="split-img" src="" alt="Annotated PCB">
+                </div>
+              </div>
+              <div class="interactive-box-layer" id="boxOverlayLayer"></div>
+            </div>
+
+            <div class="empty-stage-state" id="emptyState">
+              <div class="empty-glass-circle">
+                <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.8">
+                  <path d="M23 7l-7 5 7 5V7z"></path>
+                  <rect x="1" y="5" width="15" height="14" rx="3" ry="3"></rect>
+                </svg>
+              </div>
+              <h3 class="empty-title" id="emptyStateTitle">กล้องยังไม่ได้เปิดใช้งาน</h3>
+              <button id="quickStartCamBtn" class="clay-btn primary-gradient center-launch-btn">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                  <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+                เปิดกล้องทันที (Turn On Camera)
+              </button>
+            </div>
+
+            <div class="processing-overlay" id="processingOverlay" style="display: none;">
+              <div class="spinner-core"></div>
+              <p class="processing-text">AI กำลังสแกนหาข้อบกพร่องของ PCB...</p>
+              <span class="processing-sub">YOLO11m Inference in Progress</span>
+            </div>
+          </div>
+
+          
+          <div class="viewer-verdict-dock">
+            <div class="verdict-banner idle" id="verdictBanner">
+              <div class="verdict-icon" id="verdictIcon">⏳</div>
+              <div class="verdict-content">
+                <h2 id="verdictTitle">รอเริ่มการตรวจจับ</h2>
+                <p id="verdictSub" style="display: none;"></p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        
+        <section class="sample-bar-section" id="sampleBarSection">
+          <div class="section-headline">
+            <div class="title-with-icon">
+              <span class="icon-circle">⚡</span>
+              <span>ภาพตัวอย่างสำหรับทดสอบ (Quick Test Samples)</span>
+            </div>
+          </div>
+          <div class="samples-carousel" id="samplesCarousel">
+            <div class="sample-skeleton">กำลังโหลดตัวอย่าง...</div>
+          </div>
+        </section>
+      </section>
+
+      
+      <aside class="control-sidebar">
+        
+        <div class="card camera-card" id="cameraControlCard">
+          <div class="card-header">
+            <div class="card-title-group">
+              <span class="card-header-icon">📹</span>
+              <div class="card-header-text">
+                <h3>ควบคุมกล้อง (Live Camera)</h3>
+                <span class="card-device-badge">🔌 DirectShow USB Cam</span>
+              </div>
             </div>
           </div>
 
           <div class="camera-actions-row">
-            <button id="startCameraBtn" class="cyber-btn primary-glow">
+            <button id="startCameraBtn" class="clay-btn primary-gradient">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
                 <polygon points="5 3 19 12 5 21 5 3"></polygon>
               </svg>
               เปิดกล้อง (Start Camera)
             </button>
-            <button id="stopCameraBtn" class="cyber-btn danger-glow" style="display: none;">
+            <button id="stopCameraBtn" class="clay-btn danger-gradient" style="display: none;">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
                 <rect x="6" y="6" width="12" height="12"></rect>
               </svg>
@@ -103,31 +269,60 @@
 
           <div class="live-detect-panel">
             <div class="detect-panel-left">
-              <span class="detect-panel-icon">⚡</span>
+              <div class="detect-panel-icon-wrap">⚡</div>
               <div class="detect-panel-text">
                 <span class="detect-panel-title">สแกนสด Real-Time AI</span>
                 <span class="detect-panel-desc">ตรวจจับ Defect อัตโนมัติ</span>
               </div>
             </div>
-            <label class="cyber-switch" title="เปิด/ปิดการสแกนสด AI">
+            <label class="clay-switch" title="เปิด/ปิดการสแกนสด AI">
               <input type="checkbox" id="liveDetectToggle" checked>
               <span class="switch-slider"></span>
             </label>
           </div>
 
-
+          <div class="calibration-panel" id="calibrationPanel">
+            <div class="calib-panel-header">
+              <span class="calib-panel-icon">🎯</span>
+              <span class="calib-panel-title">Calibrate บอร์ด PCB</span>
+            </div>
+            <div class="calib-status" id="calibStatusText" style="display: none;"></div>
+            <div class="calib-preview-row" id="calibPreviewRow" style="display: none;">
+              <img id="calibRefThumb" class="calib-ref-thumb" src="" alt="Reference">
+              <div class="calib-info">
+                <span class="calib-info-label" id="calibInfoLabel">✅ ตั้งค่าแล้ว</span>
+                <span class="calib-info-date" id="calibInfoDate"></span>
+              </div>
+            </div>
+            <button id="startCalibBtn" class="clay-btn calibrate-btn">
+              🎯 เริ่ม Calibrate
+            </button>
+            <div class="calib-actions-row" id="calibActionsRow" style="display: none;">
+              <button id="saveCalibBtn" class="clay-btn primary-gradient calib-action-btn" disabled>
+                💾 บันทึก
+              </button>
+              <button id="resetCalibBtn" class="clay-btn secondary-btn calib-action-btn">
+                🔄 รีเซ็ต
+              </button>
+              <button id="cancelCalibBtn" class="clay-btn danger-btn calib-action-btn">
+                ❌ ยกเลิก
+              </button>
+            </div>
+            <button id="clearCalibBtn" class="clay-btn danger-btn" style="display: none; width: 100%;">
+              🗑️ ล้าง Calibration
+            </button>
+          </div>
         </div>
 
-
-
-
-        <!-- 2. UPLOAD ZONE (Active in Image Upload Mode) -->
+        
         <div class="card upload-card" id="imageUploadCard" style="display: none;">
           <div class="card-header">
-            <h3>อัปโหลดภาพ PCB (Upload Image)</h3>
+            <div class="card-title-group">
+              <span class="card-header-icon">📁</span>
+              <h3>อัปโหลดภาพ PCB (Upload)</h3>
+            </div>
             <span class="badge">JPG / PNG</span>
           </div>
-
           <div class="drop-zone" id="dropZone">
             <input type="file" id="fileInput" accept="image/*" class="file-input-hidden">
             <div class="drop-content">
@@ -144,15 +339,18 @@
           </div>
         </div>
 
-        <!-- 3. Detection Parameters -->
+        
         <div class="card settings-card">
           <div class="card-header">
-            <h3>ตั้งค่าโมเดล & ความไว (Parameters)</h3>
+            <div class="card-title-group">
+              <span class="card-header-icon">⚙️</span>
+              <h3>พารามิเตอร์โมเดล (Parameters)</h3>
+            </div>
           </div>
 
           <div class="settings-group">
             <label for="modelSelect">Detection Model</label>
-            <select id="modelSelect" class="cyber-select">
+            <select id="modelSelect" class="clay-select">
               <option value="">กำลังค้นหาโมเดล...</option>
             </select>
           </div>
@@ -162,7 +360,7 @@
               <label for="confRange">Confidence Threshold</label>
               <span class="slider-value" id="confVal">50%</span>
             </div>
-            <input type="range" id="confRange" min="5" max="95" value="50" class="cyber-range">
+            <input type="range" id="confRange" min="5" max="95" value="50" class="clay-range">
           </div>
 
           <div class="settings-group">
@@ -170,19 +368,31 @@
               <label for="iouRange">IoU (NMS Overlap Threshold)</label>
               <span class="slider-value" id="iouVal">45%</span>
             </div>
-            <input type="range" id="iouRange" min="10" max="90" value="45" class="cyber-range">
+            <input type="range" id="iouRange" min="10" max="90" value="45" class="clay-range">
           </div>
 
           <div class="view-toggles-group" id="viewModeGroupContainer" style="display: none;">
-            <label>View Mode</label>
-            <div class="toggle-buttons" id="viewModeGroup">
-              <button class="mode-btn active" data-mode="annotated">AI ตรวจจับ (Detection)</button>
-              <button class="mode-btn" data-mode="split">ภาพคู่ (Side-by-Side)</button>
-              <button class="mode-btn" data-mode="original">ต้นฉบับ (Original)</button>
+            <div class="view-toggles-header">
+              <span class="view-toggles-icon">👁️</span>
+              <label>โหมดมุมมอง (View Mode)</label>
+            </div>
+            <div class="toggle-buttons segmented-capsule" id="viewModeGroup">
+              <button class="mode-btn active" data-mode="annotated">
+                <span class="mode-icon">🎯</span>
+                <span>AI ตรวจจับ</span>
+              </button>
+              <button class="mode-btn" data-mode="split">
+                <span class="mode-icon">⚡</span>
+                <span>ภาพคู่</span>
+              </button>
+              <button class="mode-btn" data-mode="original">
+                <span class="mode-icon">🖼️</span>
+                <span>ต้นฉบับ</span>
+              </button>
             </div>
           </div>
 
-          <button id="reRunBtn" class="cyber-btn primary-glow" style="display: none;">
+          <button id="reRunBtn" class="clay-btn primary-gradient" style="display: none;">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M23 4v6h-6M1 20v-6h6"></path>
               <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
@@ -191,10 +401,13 @@
           </button>
         </div>
 
-        <!-- Quick Dataset Info -->
+        
         <div class="card dataset-card">
           <div class="card-header">
-            <h3>Dataset & Model Info</h3>
+            <div class="card-title-group">
+              <span class="card-header-icon">📊</span>
+              <h3>ข้อมูลโมเดล (Model Info)</h3>
+            </div>
           </div>
           <div class="stats-mini-grid">
             <div class="stat-mini">
@@ -207,7 +420,7 @@
             </div>
             <div class="stat-mini">
               <span class="s-label">Defect Class</span>
-              <span class="s-val highlight">missing_hole</span>
+              <span class="s-val highlight-purple">missing_hole</span>
             </div>
             <div class="stat-mini">
               <span class="s-label">Architecture</span>
@@ -216,143 +429,32 @@
           </div>
         </div>
       </aside>
-
-      <!-- Center: Main Inspection Canvas View -->
-      <section class="canvas-center-section">
-        <div class="viewer-card">
-          <div class="viewer-toolbar">
-            <div class="toolbar-left">
-              <span class="viewer-badge" id="imageNameBadge">กล้องสด (Live Camera Mode)</span>
-              <span class="dimension-badge" id="imageDimBadge">0 × 0 px</span>
-            </div>
-
-            <div class="toolbar-actions">
-              <button id="zoomInBtn" class="tool-btn" title="ซูมเข้า">+</button>
-              <button id="zoomOutBtn" class="tool-btn" title="ซูมออก">-</button>
-              <button id="resetZoomBtn" class="tool-btn" title="รีเซ็ตขนาด 100%">1:1</button>
-            </div>
-          </div>
-
-          <!-- Main Visual Viewport with Pan & Zoom -->
-          <div class="viewport-stage" id="viewportStage">
-            <!-- Laser Scanner Effect Line -->
-            <div class="scanner-laser" id="scannerLaser"></div>
-
-            <!-- LIVE CAMERA VIEWPORT (Default in Camera Mode) -->
-            <div class="camera-stream-container" id="cameraStreamContainer">
-              <img id="cameraStreamImg" class="camera-stream-image" src="" alt="Live Camera Stream" style="display: none;">
-              <video id="cameraVideo" autoplay playsinline muted style="display: none;"></video>
-
-              <!-- Live HUD Badge (FPS, Resolution, Status) -->
-              <div class="camera-hud-badge" id="cameraHudBadge" style="display: none;">
-                <div class="hud-item"><span class="hud-dot live-blink"></span> <span id="hudStatusText">LIVE CAM</span></div>
-                <div class="hud-item" id="hudResolutionText">1280×720</div>
-                <div class="hud-item highlight" id="hudFpsText">-- FPS</div>
-              </div>
-            </div>
-
-
-            <!-- Single Image View Container (Image Mode) -->
-            <div class="stage-transform-container" id="stageContainer" style="display: none;">
-              <img id="mainDisplayImg" class="viewport-image" src="" alt="PCB Inspection View" style="display: none;">
-              
-              <!-- Split View Containers -->
-              <div class="split-view-container" id="splitViewContainer" style="display: none;">
-                <div class="split-pane">
-                  <div class="pane-label">ภาพต้นฉบับ (Original)</div>
-                  <img id="splitOriginalImg" class="split-img" src="" alt="Original PCB">
-                </div>
-                <div class="split-pane">
-                  <div class="pane-label">ผลการตรวจจับ AI (Annotated)</div>
-                  <img id="splitAnnotatedImg" class="split-img" src="" alt="Annotated PCB">
-                </div>
-              </div>
-
-              <!-- Interactive Bounding Box Highlight Overlay Layer -->
-              <div class="interactive-box-layer" id="boxOverlayLayer"></div>
-            </div>
-
-            <!-- Empty State Placeholder (Camera Ready State) -->
-            <div class="empty-stage-state" id="emptyState">
-              <button id="quickStartCamBtn" class="cyber-btn primary-glow center-launch-btn">
-                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-                  <polygon points="5 3 19 12 5 21 5 3"></polygon>
-                </svg>
-                เปิดกล้องทันที (Turn On Camera)
-              </button>
-            </div>
-
-            <!-- Processing Loader -->
-            <div class="processing-overlay" id="processingOverlay" style="display: none;">
-              <div class="spinner-core"></div>
-              <p class="processing-text">AI กำลังสแกนหาข้อบกพร่องของ PCB...</p>
-              <span class="processing-sub">YOLO11m Inference in Progress</span>
-            </div>
-          </div>
-
-          <!-- Verdict Banner Docked Under Image Viewport -->
-          <div class="viewer-verdict-dock">
-            <div class="verdict-banner idle" id="verdictBanner">
-              <div class="verdict-icon" id="verdictIcon">⏳</div>
-              <div class="verdict-content">
-                <h2 id="verdictTitle">รอเริ่มการตรวจจับ</h2>
-                <p id="verdictSub">กรุณาเปิดกล้องหรือเลือกภาพ PCB เพื่อเริ่มตรวจสอบ</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
     </section>
 
-    <!-- Defect Telemetry Full-Width Below Workstation -->
+    
     <section class="telemetry-below">
-      <!-- Telemetry Metrics Cards -->
-      <div class="metrics-row">
-        <div class="metric-card">
-          <span class="m-title">ข้อบกพร่องที่พบ (Defect Count)</span>
-          <div class="m-val-wrap">
-            <span class="m-val" id="metricDefectCount">0</span>
-            <span class="m-unit">จุด</span>
-          </div>
-        </div>
-
-        <div class="metric-card">
-          <span class="m-title">ความเร็วอนุมาน (Inference Latency)</span>
-          <div class="m-val-wrap">
-            <span class="m-val highlight" id="metricInferenceTime">--</span>
-            <span class="m-unit">ms</span>
-          </div>
-        </div>
-
-        <div class="metric-card">
-          <span class="m-title">FPS การตรวจจับ (Detection Speed)</span>
-          <div class="m-val-wrap">
-            <span class="m-val" id="metricFps">--</span>
-            <span class="m-unit">fps</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Magnified Defect Crops Gallery -->
-      <div class="card defect-crops-card">
+      <div class="card defect-crops-card" id="defectCropsCard">
         <div class="card-header">
-          <h3>ภาพซูมจุดบกพร่อง (Magnified Defects)</h3>
-          <span class="badge" id="defectCountBadge">0 จุด</span>
+          <div class="card-title-group">
+            <span class="card-header-icon">🔍</span>
+            <h3>ภาพซูมจุดบกพร่อง (Magnified Defects)</h3>
+          </div>
         </div>
         <div class="crops-scroll-gallery" id="cropsGallery">
           <p class="empty-crops-msg">ยังไม่มีจุดบกพร่องที่ตรวจพบ</p>
         </div>
       </div>
 
-      <!-- Defect Coordinates Table -->
       <div class="card defect-table-card">
         <div class="card-header">
-          <h3>พิกัดและรายละเอียด (Defect Table)</h3>
-          <button id="exportJsonBtn" class="mini-btn" title="ส่งออก JSON">JSON</button>
+          <div class="card-title-group">
+            <span class="card-header-icon">📋</span>
+            <h3>พิกัดและรายละเอียด (Defect Table)</h3>
+          </div>
+          <button id="exportJsonBtn" class="mini-btn-clay" title="ส่งออกข้อมูลเป็น JSON">JSON</button>
         </div>
-
         <div class="table-container">
-          <table class="cyber-table">
+          <table class="clay-table">
             <thead>
               <tr>
                 <th>ลำดับ</th>
@@ -364,7 +466,7 @@
             </thead>
             <tbody id="defectTableBody">
               <tr>
-                <td colspan="5" class="empty-td">ไม่มีข้อมูล</td>
+                <td colspan="5" class="empty-td">ไม่มีข้อมูลการตรวจพบ</td>
               </tr>
             </tbody>
           </table>
@@ -373,6 +475,6 @@
     </section>
   </main>
 
-  <script src="js/app.js?v=20261024_single_image"></script>
+  <script src="js/app.js?v=20261111_zoom_fix"></script>
 </body>
 </html>

@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import time
+import argparse
 import cv2
 import numpy as np
 
@@ -29,14 +30,12 @@ COLORS = {
     "dark_bg": (20, 20, 30),
 }
 
-
 def mouse_callback(event, x, y, flags, param):
     global corners, frame_copy
     if event == cv2.EVENT_LBUTTONDOWN:
         if len(corners) < 4:
             corners.append([x, y])
             redraw_overlay()
-
 
 def redraw_overlay():
     global frame_copy
@@ -77,7 +76,6 @@ def redraw_overlay():
         cv2.circle(frame_copy, tuple(pt), 6, COLORS["cyan"], -1, cv2.LINE_AA)
         cv2.putText(frame_copy, str(i + 1), (pt[0] + 16, pt[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLORS["white"], 2, cv2.LINE_AA)
         cv2.putText(frame_copy, CORNER_LABELS[i].split(": ")[1], (pt[0] + 16, pt[1] + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.4, COLORS["yellow"], 1, cv2.LINE_AA)
-
 
 def save_calibration():
     global corners, current_frame
@@ -121,7 +119,6 @@ def save_calibration():
 
     return True
 
-
 def show_existing_calibration():
     if os.path.exists(CALIBRATION_FILE):
         try:
@@ -135,9 +132,51 @@ def show_existing_calibration():
         except Exception:
             pass
 
+def try_open_camera(preferred_index=0):
+    for idx in [preferred_index, 0, 1, 2]:
+        for api in [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY]:
+            try:
+                cap = cv2.VideoCapture(idx, api)
+                if cap.isOpened():
+                    ret, test_frame = cap.read()
+                    if ret and test_frame is not None:
+                        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+                        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+                        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                        return cap, idx
+                    cap.release()
+            except Exception:
+                pass
+    return None, -1
+
+def pick_image_file():
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes('-topmost', True)
+        file_path = filedialog.askopenfilename(
+            title="เลือกภาพ PCB สำหรับ Calibrate",
+            filetypes=[("Image files", "*.jpg;*.jpeg;*.png;*.bmp")]
+        )
+        root.destroy()
+        if file_path and os.path.exists(file_path):
+            return file_path
+    except Exception:
+        pass
+
+    if os.path.exists(REFERENCE_IMAGE):
+        return REFERENCE_IMAGE
+    return None
 
 def main():
     global corners, frame_copy, current_frame
+
+    parser = argparse.ArgumentParser(description="PCB Calibration Tool")
+    parser.add_argument("--camera", type=int, default=0, help="Camera index (default 0)")
+    parser.add_argument("--image", type=str, default=None, help="Path to image file for calibration")
+    args = parser.parse_args()
 
     print("\n" + "=" * 55)
     print("  PCB CALIBRATION TOOL")
@@ -146,26 +185,49 @@ def main():
 
     show_existing_calibration()
 
-    print("  [*] Opening camera (DirectShow)...")
-    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-    if not cap.isOpened():
-        print("  [!] DirectShow failed, trying default...")
-        cap = cv2.VideoCapture(0)
-        if not cap.isOpened():
-            print("  [ERROR] Cannot open camera!")
-            print("  - Check USB cable")
-            print("  - Close other apps using the camera")
-            sys.exit(1)
+    cap = None
+    is_image_mode = False
 
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    if args.image and os.path.exists(args.image):
+        print(f"  [*] Loading calibration image: {args.image}")
+        current_frame = cv2.imread(args.image)
+        if current_frame is not None:
+            is_image_mode = True
 
-    actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    print(f"  [OK] Camera opened: {actual_w}x{actual_h}\n")
+    if not is_image_mode:
+        print(f"  [*] Searching for connected camera (Index {args.camera})...")
+        cap, actual_idx = try_open_camera(args.camera)
+        if cap is not None:
+            actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            print(f"  [OK] Camera #{actual_idx} opened: {actual_w}x{actual_h}\n")
+        else:
+            print("\n  [!] ไม่พบสัญญาณภาพจากกล้อง (Camera Not Found / Disconnected)")
+            print("      สาเหตุที่เป็นไปได้:")
+            print("      1. ยังไม่ได้เสียบสาย USB ของกล้องเข้ากับคอมพิวเตอร์")
+            print("      2. กล้องถูกปิดใช้งาน (Disabled) ใน Windows Device Manager")
+            print("      3. มีโปรแกรมอื่นกำลังเปิดใช้งานกล้องอยู่\n")
+
+            if os.path.exists(REFERENCE_IMAGE):
+                print(f"  [*] ใช้รูปภาพอ้างอิงเดิม ({REFERENCE_IMAGE}) เพื่อมาร์กจุดใหม่:")
+                current_frame = cv2.imread(REFERENCE_IMAGE)
+                if current_frame is not None:
+                    is_image_mode = True
+
+            if not is_image_mode:
+                print("  [*] เปิดหน้าต่างเลือกไฟล์รูปภาพ...")
+                img_path = pick_image_file()
+                if img_path and os.path.exists(img_path):
+                    current_frame = cv2.imread(img_path)
+                    if current_frame is not None:
+                        is_image_mode = True
+
+            if not is_image_mode:
+                print("  [ERROR] ไม่สามารถเริ่ม Calibrate ได้ (ไม่มีทั้งกล้องและไฟล์ภาพ)")
+                sys.exit(1)
+
     print("  Controls:")
-    print("    Mouse Click = Mark corner point")
+    print("    Mouse Click = Mark corner point (1:บนซ้าย, 2:บนขวา, 3:ล่างขวา, 4:ล่างซ้าย)")
     print("    R = Reset all points")
     print("    S = Save calibration (after 4 points)")
     print("    Q / ESC = Quit\n")
@@ -176,20 +238,21 @@ def main():
     cv2.setMouseCallback(window_name, mouse_callback)
 
     while True:
-        ret, frame = cap.read()
-        if not ret or frame is None:
-            time.sleep(0.01)
-            continue
+        if not is_image_mode and cap is not None:
+            ret, frame = cap.read()
+            if not ret or frame is None:
+                time.sleep(0.01)
+                continue
+            current_frame = frame.copy()
 
-        current_frame = frame.copy()
         redraw_overlay()
 
         if frame_copy is not None:
             cv2.imshow(window_name, frame_copy)
-        else:
-            cv2.imshow(window_name, frame)
+        elif current_frame is not None:
+            cv2.imshow(window_name, current_frame)
 
-        key = cv2.waitKey(1) & 0xFF
+        key = cv2.waitKey(20 if is_image_mode else 1) & 0xFF
 
         if key in (ord('q'), ord('Q'), 27):
             print("  [*] Exiting calibration tool.")
@@ -215,10 +278,10 @@ def main():
             else:
                 print(f"  [!] Need 4 corners. Currently have {len(corners)}.")
 
-    cap.release()
+    if cap is not None:
+        cap.release()
     cv2.destroyAllWindows()
     print("  [*] Done.")
-
 
 if __name__ == "__main__":
     main()

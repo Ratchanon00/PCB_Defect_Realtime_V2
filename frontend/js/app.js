@@ -1,8 +1,8 @@
-// PCB DEFECT VISION AI - REALTIME CAMERA & OPTICAL INSPECTION
-// (Calibration is done via separate calibrate.py script)
 
-let currentAppMode = 'camera'; // 'camera' (default) or 'image'
+
+let currentAppMode = 'camera'; 
 let currentDetectionResult = null;
+let currentImageResult = null;
 let currentSource = null;
 let currentViewMode = 'annotated';
 
@@ -13,19 +13,21 @@ let isPanning = false;
 let startPanX = 0;
 let startPanY = 0;
 
-// Camera State
 let cameraStream = null;
 let isCameraActive = false;
 let currentCameraType = 'directshow';
 let telemetryIntervalId = null;
 
-// DOM Elements - Mode Switcher
+let isCalibrationMode = false;
+let calibrationCorners = [];
+const CALIB_LABELS = ['บนซ้าย (TL)', 'บนขวา (TR)', 'ล่างขวา (BR)', 'ล่างซ้าย (BL)'];
+const CALIB_COLORS = ['#ef4444', '#f59e0b', '#10b981', '#06b6d4'];
+
 const modeLiveCamBtn = document.getElementById('modeLiveCamBtn');
 const modeImageUploadBtn = document.getElementById('modeImageUploadBtn');
 const cameraControlCard = document.getElementById('cameraControlCard');
 const imageUploadCard = document.getElementById('imageUploadCard');
 
-// DOM Elements - Camera
 const cameraStatusBadge = document.getElementById('cameraStatusBadge');
 const startCameraBtn = document.getElementById('startCameraBtn');
 const stopCameraBtn = document.getElementById('stopCameraBtn');
@@ -39,7 +41,24 @@ const hudStatusText = document.getElementById('hudStatusText');
 const hudResolutionText = document.getElementById('hudResolutionText');
 const hudFpsText = document.getElementById('hudFpsText');
 
-// DOM Elements - Image & General
+const calibrationPanel = document.getElementById('calibrationPanel');
+const calibStatusText = document.getElementById('calibStatusText');
+const calibPreviewRow = document.getElementById('calibPreviewRow');
+const calibRefThumb = document.getElementById('calibRefThumb');
+const calibInfoLabel = document.getElementById('calibInfoLabel');
+const calibInfoDate = document.getElementById('calibInfoDate');
+const startCalibBtn = document.getElementById('startCalibBtn');
+const calibActionsRow = document.getElementById('calibActionsRow');
+const saveCalibBtn = document.getElementById('saveCalibBtn');
+const resetCalibBtn = document.getElementById('resetCalibBtn');
+const cancelCalibBtn = document.getElementById('cancelCalibBtn');
+const clearCalibBtn = document.getElementById('clearCalibBtn');
+const calibrationCanvas = document.getElementById('calibrationCanvas');
+const calibCtx = calibrationCanvas ? calibrationCanvas.getContext('2d') : null;
+const calibBanner = document.getElementById('calibBanner');
+const calibBannerText = document.getElementById('calibBannerText');
+const miniCancelCalibBtn = document.getElementById('miniCancelCalibBtn');
+
 const dropZone = document.getElementById('dropZone');
 const fileInput = document.getElementById('fileInput');
 const modelSelect = document.getElementById('modelSelect');
@@ -77,18 +96,15 @@ const defectCountBadge = document.getElementById('defectCountBadge');
 const imageNameBadge = document.getElementById('imageNameBadge');
 const imageDimBadge = document.getElementById('imageDimBadge');
 
-// Offscreen Canvas for WebRTC Frame Capture
 const offscreenCanvas = document.createElement('canvas');
 const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
 
 document.addEventListener('DOMContentLoaded', () => {
+  initTheme();
   initSystem();
   setupEventListeners();
 });
 
-// -------------------------------------------------------------
-// System Initialization
-// -------------------------------------------------------------
 async function initSystem() {
   try {
     if (confRange && confVal) {
@@ -121,8 +137,9 @@ async function initSystem() {
     document.getElementById('statValCount').textContent = statsData.valid_count;
 
     await loadSamples();
+    await loadCalibrationStatus();
 
-    // Default to camera mode
+    
     setAppMode('camera');
 
   } catch (err) {
@@ -130,11 +147,10 @@ async function initSystem() {
   }
 }
 
-// -------------------------------------------------------------
-// Mode Switcher (Camera vs Image Upload)
-// -------------------------------------------------------------
 function setAppMode(mode) {
   currentAppMode = mode;
+
+  const emptyTitle = document.getElementById('emptyStateTitle');
 
   if (mode === 'camera') {
     modeLiveCamBtn.classList.add('active');
@@ -148,26 +164,39 @@ function setAppMode(mode) {
     if (viewModeContainer) viewModeContainer.style.display = 'none';
     if (reRunBtn) reRunBtn.style.display = 'none';
 
+    // ซ่อนภาพซูมจุดบกพร่องในโหมดกล้องสด (ใช้ไม่ได้ในโหมดนี้)
+    const defectCropsCard = document.getElementById('defectCropsCard');
+    if (defectCropsCard) defectCropsCard.style.display = 'none';
+
     if (sampleBarSection) sampleBarSection.classList.add('collapsed');
+
+    if (emptyTitle) emptyTitle.textContent = 'กล้องยังไม่ได้เปิดใช้งาน';
 
     if (isCameraActive) {
       cameraStreamContainer.style.display = 'flex';
       emptyState.style.display = 'none';
+      imageNameBadge.textContent = 'กล้องสด (Live Camera Feed)';
+      imageDimBadge.textContent = '1280 × 720 px';
     } else {
       cameraStreamContainer.style.display = 'none';
       emptyState.style.display = 'flex';
-      if (quickStartCamBtn) quickStartCamBtn.style.display = 'flex';
+      if (quickStartCamBtn) quickStartCamBtn.style.display = 'inline-flex';
+      imageNameBadge.textContent = 'กล้องสด (กล้องปิดอยู่)';
+      imageDimBadge.textContent = '0 × 0 px';
     }
 
-    imageNameBadge.textContent = isCameraActive ? 'กล้องสด (Live Camera Feed)' : 'กล้องยังไม่เปิด';
-
   } else {
-    // Image Mode
+    
     modeImageUploadBtn.classList.add('active');
     modeLiveCamBtn.classList.remove('active');
     imageUploadCard.style.display = 'block';
     cameraControlCard.style.display = 'none';
     cameraStreamContainer.style.display = 'none';
+
+    
+    if (isCameraActive) {
+      stopCamera();
+    }
 
     const viewModeContainer = document.getElementById('viewModeGroupContainer');
     const reRunBtn = document.getElementById('reRunBtn');
@@ -176,29 +205,45 @@ function setAppMode(mode) {
 
     if (sampleBarSection) sampleBarSection.classList.remove('collapsed');
 
-    if (currentDetectionResult) {
+    // แสดงภาพซูมจุดบกพร่องกลับมาในโหมดรูปภาพ
+    const defectCropsCard = document.getElementById('defectCropsCard');
+    if (defectCropsCard) defectCropsCard.style.display = '';
+
+    
+    if (currentImageResult && (currentImageResult.annotated_image || currentImageResult.original_image)) {
       stageContainer.style.display = 'flex';
       emptyState.style.display = 'none';
-      renderCurrentView();
+      displayResults(currentImageResult);
     } else {
       stageContainer.style.display = 'none';
+      mainDisplayImg.removeAttribute('src');
+      mainDisplayImg.style.display = 'none';
+      splitViewContainer.style.display = 'none';
       emptyState.style.display = 'flex';
       if (quickStartCamBtn) quickStartCamBtn.style.display = 'none';
+      if (emptyTitle) emptyTitle.textContent = 'ยังไม่ได้เลือกภาพ PCB';
+      imageNameBadge.textContent = 'โหมดรูปภาพ (รอเลือกภาพ)';
+      imageDimBadge.textContent = '0 × 0 px';
+
+      
+      verdictBanner.className = 'verdict-banner idle';
+      verdictIcon.textContent = '⏳';
+      verdictTitle.textContent = 'รอเริ่มการตรวจจับ';
+      metricDefectCount.textContent = '0';
+      metricInferenceTime.textContent = '--';
+      metricFps.textContent = '--';
+      defectCountBadge.textContent = '0 จุด';
+      cropsGallery.innerHTML = '<p class="empty-crops-msg">ยังไม่มีจุดบกพร่องที่ตรวจพบ</p>';
+      defectTableBody.innerHTML = '<tr><td colspan="5" class="empty-td">ไม่มีข้อมูลการตรวจพบ</td></tr>';
     }
   }
 }
 
-// -------------------------------------------------------------
-// Main Camera Start — Always DirectShow USB
-// -------------------------------------------------------------
 async function startCamera() {
   if (isCameraActive) return;
   await startDirectShowCamera();
 }
 
-// -------------------------------------------------------------
-// DirectShow Backend Stream Camera
-// -------------------------------------------------------------
 async function startDirectShowCamera() {
   processingOverlay.style.display = 'flex';
   document.querySelector('.processing-text').textContent = 'กำลังเปิดกล้อง USB (DirectShow)...';
@@ -225,9 +270,19 @@ async function startDirectShowCamera() {
     stageContainer.style.display = 'none';
     emptyState.style.display = 'none';
 
-    // Show MJPEG stream img
+    
     cameraStreamImg.style.display = 'block';
     cameraVideo.style.display = 'none';
+    cameraStreamImg.onerror = () => {
+      console.warn('Camera stream connection retry...');
+      if (isCameraActive) {
+        setTimeout(() => {
+          if (isCameraActive) {
+            cameraStreamImg.src = '/api/camera/stream?t=' + Date.now();
+          }
+        }, 1000);
+      }
+    };
     cameraStreamImg.src = '/api/camera/stream?t=' + Date.now();
 
     isCameraActive = true;
@@ -237,7 +292,7 @@ async function startDirectShowCamera() {
     hudStatusText.textContent = 'USB CAM (DIRECT)';
     hudResolutionText.textContent = '1280×720';
 
-    // Start Telemetry Polling
+    
     startTelemetryPolling();
 
   } catch (err) {
@@ -270,9 +325,6 @@ function startTelemetryPolling() {
   }, 250);
 }
 
-// -------------------------------------------------------------
-// Stop Camera
-// -------------------------------------------------------------
 async function stopCamera() {
   if (currentCameraType === 'directshow') {
     try {
@@ -325,9 +377,6 @@ function updateCameraUiState(active) {
   }
 }
 
-// -------------------------------------------------------------
-// Sync Settings to Backend
-// -------------------------------------------------------------
 async function syncCameraSettingsToBackend() {
   if (isCameraActive && currentCameraType === 'directshow') {
     const fd = new FormData();
@@ -343,19 +392,16 @@ async function syncCameraSettingsToBackend() {
   }
 }
 
-// -------------------------------------------------------------
-// Telemetry & Verdict Banner Updates
-// -------------------------------------------------------------
 function updateTelemetryAndVerdict(data) {
   verdictBanner.className = 'verdict-banner ' + (data.is_pass ? 'pass' : 'defect');
   if (data.is_pass) {
     verdictIcon.textContent = '✅';
     verdictTitle.textContent = 'PCB PASS (สมบูรณ์)';
-    verdictSub.textContent = 'ไม่พบข้อบกพร่องตามระดับความไวที่กำหนด';
+    if (verdictSub) verdictSub.textContent = 'ไม่พบข้อบกพร่องตามระดับความไวที่กำหนด';
   } else {
     verdictIcon.textContent = '⚠️';
     verdictTitle.textContent = `DEFECT DETECTED (พบ ${data.defect_count} จุด)`;
-    verdictSub.textContent = `พบข้อบกพร่องประเภท Missing Hole จำนวน ${data.defect_count} แห่ง`;
+    if (verdictSub) verdictSub.textContent = `พบข้อบกพร่องประเภท Missing Hole จำนวน ${data.defect_count} แห่ง`;
   }
 
   metricDefectCount.textContent = data.defect_count;
@@ -367,9 +413,6 @@ function updateTelemetryAndVerdict(data) {
   renderTable(data.defects);
 }
 
-// -------------------------------------------------------------
-// Sample Loader & Gallery
-// -------------------------------------------------------------
 async function loadSamples() {
   try {
     const res = await fetch('/api/samples');
@@ -405,9 +448,6 @@ async function loadSamples() {
   }
 }
 
-// -------------------------------------------------------------
-// Detection on Static Image / Uploaded File
-// -------------------------------------------------------------
 async function runDetection() {
   if (!currentSource) return;
 
@@ -442,6 +482,7 @@ async function runDetection() {
 
     const data = await res.json();
     currentDetectionResult = data;
+    currentImageResult = data;
     displayResults(data);
 
   } catch (err) {
@@ -455,16 +496,24 @@ async function runDetection() {
 
 function displayResults(data) {
   imageNameBadge.textContent = data.filename || 'PCB Image';
-  imageDimBadge.textContent = `${data.dimensions.width} × ${data.dimensions.height} px`;
+  if (data.dimensions) {
+    imageDimBadge.textContent = `${data.dimensions.width} × ${data.dimensions.height} px`;
+  }
 
   updateTelemetryAndVerdict(data);
   renderCurrentView();
 }
 
 function renderCurrentView() {
-  if (!currentDetectionResult) return;
+  const data = currentImageResult || currentDetectionResult;
+  if (!data || (!data.original_image && !data.annotated_image)) {
+    stageContainer.style.display = 'none';
+    if (currentAppMode === 'image') {
+      emptyState.style.display = 'flex';
+    }
+    return;
+  }
 
-  const data = currentDetectionResult;
   emptyState.style.display = 'none';
 
   if (isCameraActive) {
@@ -479,12 +528,15 @@ function renderCurrentView() {
   if (currentViewMode === 'split') {
     mainDisplayImg.style.display = 'none';
     splitViewContainer.style.display = 'flex';
-    splitOriginalImg.src = data.original_image;
-    splitAnnotatedImg.src = data.annotated_image;
+    if (data.original_image) splitOriginalImg.src = data.original_image;
+    if (data.annotated_image) splitAnnotatedImg.src = data.annotated_image;
   } else {
     splitViewContainer.style.display = 'none';
     mainDisplayImg.style.display = 'block';
-    mainDisplayImg.src = (currentViewMode === 'original') ? data.original_image : data.annotated_image;
+    const imgSrc = (currentViewMode === 'original') ? data.original_image : data.annotated_image;
+    if (imgSrc) {
+      mainDisplayImg.src = imgSrc;
+    }
   }
 }
 
@@ -551,31 +603,42 @@ function unhighlightTableRow(id) {
   }
 }
 
-// -------------------------------------------------------------
-// Event Listeners
-// -------------------------------------------------------------
 function setupEventListeners() {
-  // Mode Switchers
+  
   modeLiveCamBtn.addEventListener('click', () => setAppMode('camera'));
   modeImageUploadBtn.addEventListener('click', () => setAppMode('image'));
 
-  // Camera Actions
+  
   startCameraBtn.addEventListener('click', startCamera);
   if (quickStartCamBtn) quickStartCamBtn.addEventListener('click', startCamera);
   stopCameraBtn.addEventListener('click', stopCamera);
+
+  
+  if (startCalibBtn) startCalibBtn.addEventListener('click', enterCalibrationMode);
+  if (saveCalibBtn) saveCalibBtn.addEventListener('click', saveCalibration);
+  if (resetCalibBtn) resetCalibBtn.addEventListener('click', resetCalibrationCorners);
+  if (cancelCalibBtn) cancelCalibBtn.addEventListener('click', exitCalibrationMode);
+  if (miniCancelCalibBtn) miniCancelCalibBtn.addEventListener('click', exitCalibrationMode);
+  if (clearCalibBtn) clearCalibBtn.addEventListener('click', clearCalibration);
+  if (calibrationCanvas) calibrationCanvas.addEventListener('click', handleCalibrationCanvasClick);
+  if (cameraStreamImg) {
+    cameraStreamImg.addEventListener('click', (e) => {
+      if (isCalibrationMode) handleCalibrationCanvasClick(e);
+    });
+  }
 
   liveDetectToggle.addEventListener('change', () => {
     syncCameraSettingsToBackend();
   });
 
-  // Toggle Quick Samples bar
+  
   if (toggleSamplesBtn && sampleBarSection) {
     toggleSamplesBtn.addEventListener('click', () => {
       sampleBarSection.classList.toggle('collapsed');
     });
   }
 
-  // Sliders
+  
   confRange.addEventListener('input', (e) => {
     confVal.textContent = `${e.target.value}%`;
     syncCameraSettingsToBackend();
@@ -601,7 +664,7 @@ function setupEventListeners() {
     }
   });
 
-  // File Upload
+  
   dropZone.addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', (e) => {
     if (e.target.files && e.target.files[0]) {
@@ -633,7 +696,7 @@ function setupEventListeners() {
     }
   });
 
-  // View Mode toggles
+  
   const modeBtns = document.querySelectorAll('#viewModeGroup .mode-btn');
   modeBtns.forEach(btn => {
     btn.addEventListener('click', () => {
@@ -644,21 +707,41 @@ function setupEventListeners() {
     });
   });
 
-  // Zoom and Pan
-  document.getElementById('zoomInBtn').addEventListener('click', () => updateZoom(0.25));
-  document.getElementById('zoomOutBtn').addEventListener('click', () => updateZoom(-0.25));
-  document.getElementById('resetZoomBtn').addEventListener('click', resetZoom);
+  
+  const zoomInBtn = document.getElementById('zoomInBtn');
+  const zoomOutBtn = document.getElementById('zoomOutBtn');
+  const resetZoomBtn = document.getElementById('resetZoomBtn');
+
+  if (zoomInBtn) {
+    zoomInBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      updateZoom(0.25);
+    });
+  }
+  if (zoomOutBtn) {
+    zoomOutBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      updateZoom(-0.25);
+    });
+  }
+  if (resetZoomBtn) {
+    resetZoomBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      resetZoom();
+    });
+  }
 
   viewportStage.addEventListener('wheel', (e) => {
     if (currentAppMode === 'image') {
       e.preventDefault();
-      const delta = e.deltaY > 0 ? -0.15 : 0.15;
+      const delta = e.deltaY < 0 ? 0.2 : -0.2;
       updateZoom(delta);
     }
   }, { passive: false });
 
   viewportStage.addEventListener('mousedown', (e) => {
     if (currentAppMode === 'image' && zoomScale > 1) {
+      e.preventDefault();
       isPanning = true;
       startPanX = e.clientX - panX;
       startPanY = e.clientY - panY;
@@ -689,8 +772,13 @@ function handleSelectedFile(file) {
 }
 
 function updateZoom(delta) {
-  zoomScale = Math.min(Math.max(0.6, zoomScale + delta), 4.0);
+  zoomScale = Math.round(Math.min(Math.max(0.5, zoomScale + delta), 4.0) * 100) / 100;
+  if (zoomScale <= 1) {
+    panX = 0;
+    panY = 0;
+  }
   applyTransform();
+  updateZoomUI();
 }
 
 function resetZoom() {
@@ -698,10 +786,27 @@ function resetZoom() {
   panX = 0;
   panY = 0;
   applyTransform();
+  updateZoomUI();
+}
+
+function updateZoomUI() {
+  const resetBtn = document.getElementById('resetZoomBtn');
+  if (resetBtn) {
+    resetBtn.textContent = zoomScale === 1 ? '1:1' : `${Math.round(zoomScale * 100)}%`;
+  }
+  if (viewportStage) {
+    if (zoomScale > 1) {
+      viewportStage.classList.add('can-pan');
+    } else {
+      viewportStage.classList.remove('can-pan');
+    }
+  }
 }
 
 function applyTransform() {
-  stageContainer.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomScale})`;
+  if (stageContainer) {
+    stageContainer.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomScale})`;
+  }
 }
 
 function exportJsonData() {
@@ -714,4 +819,271 @@ function exportJsonData() {
   link.href = url;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+async function loadCalibrationStatus() {
+  try {
+    const res = await fetch('/api/calibration/status');
+    if (!res.ok) return;
+    const data = await res.json();
+    updateCalibrationUI(data);
+  } catch (err) {
+    console.warn('Failed to load calibration status:', err);
+  }
+}
+
+function updateCalibrationUI(data) {
+  if (!calibStatusText) return;
+
+  if (data && data.is_calibrated) {
+    calibStatusText.textContent = `✅ บันทึกแล้ว (${data.reference_features || 0} features)`;
+    calibStatusText.className = 'calib-status';
+    calibStatusText.style.display = 'block';
+    if (calibPreviewRow) calibPreviewRow.style.display = 'flex';
+    if (calibInfoLabel) calibInfoLabel.textContent = '✅ ตั้งค่าแล้ว';
+    if (calibInfoDate) calibInfoDate.textContent = data.timestamp ? new Date(data.timestamp).toLocaleString('th-TH') : '';
+    if (calibRefThumb && data.thumbnail) {
+      calibRefThumb.src = data.thumbnail;
+    }
+    if (clearCalibBtn) clearCalibBtn.style.display = 'block';
+  } else {
+    calibStatusText.textContent = '';
+    calibStatusText.style.display = 'none';
+    if (calibPreviewRow) calibPreviewRow.style.display = 'none';
+    if (clearCalibBtn) clearCalibBtn.style.display = 'none';
+  }
+}
+
+function syncCanvasSize() {
+  if (!calibrationCanvas || !cameraStreamImg) return;
+  const rect = cameraStreamImg.getBoundingClientRect();
+  if (rect.width > 0 && rect.height > 0) {
+    calibrationCanvas.width = rect.width;
+    calibrationCanvas.height = rect.height;
+    calibrationCanvas.style.width = `${rect.width}px`;
+    calibrationCanvas.style.height = `${rect.height}px`;
+  }
+}
+
+function enterCalibrationMode() {
+  if (!isCameraActive) {
+    alert('กรุณาเปิดกล้องก่อนเริ่ม Calibrate');
+    return;
+  }
+
+  isCalibrationMode = true;
+  calibrationCorners = [];
+
+  syncCanvasSize();
+  calibrationCanvas.style.display = 'block';
+  calibrationCanvas.classList.add('marking-active');
+  if (calibBanner) calibBanner.style.display = 'flex';
+  if (calibStatusText) calibStatusText.style.display = 'block';
+
+  startCalibBtn.style.display = 'none';
+  calibActionsRow.style.display = 'flex';
+  saveCalibBtn.disabled = true;
+
+  updateCalibrationInstruction();
+  drawCalibrationOverlay();
+}
+
+function exitCalibrationMode() {
+  isCalibrationMode = false;
+  calibrationCorners = [];
+
+  if (calibrationCanvas) {
+    calibrationCanvas.style.display = 'none';
+    calibrationCanvas.classList.remove('marking-active');
+    if (calibCtx) calibCtx.clearRect(0, 0, calibrationCanvas.width, calibrationCanvas.height);
+  }
+
+  if (calibBanner) calibBanner.style.display = 'none';
+
+  startCalibBtn.style.display = 'block';
+  calibActionsRow.style.display = 'none';
+  loadCalibrationStatus();
+}
+
+function updateCalibrationInstruction() {
+  const count = calibrationCorners.length;
+  let text = '';
+  if (count < 4) {
+    text = `คลิกจุดที่ ${count + 1}/4: ${CALIB_LABELS[count]}`;
+    calibStatusText.textContent = text;
+    calibStatusText.className = 'calib-status active-marking';
+    saveCalibBtn.disabled = true;
+  } else {
+    text = '🎉 ครบ 4 มุมแล้ว! ตรวจสอบแล้วกด "บันทึก"';
+    calibStatusText.textContent = text;
+    calibStatusText.className = 'calib-status';
+    saveCalibBtn.disabled = false;
+  }
+  if (calibBannerText) calibBannerText.textContent = text;
+}
+
+function handleCalibrationCanvasClick(e) {
+  if (!isCalibrationMode) return;
+  if (calibrationCorners.length >= 4) return;
+
+  
+  syncCanvasSize();
+
+  const rect = calibrationCanvas.getBoundingClientRect();
+  const clickX = e.clientX - rect.left;
+  const clickY = e.clientY - rect.top;
+
+  
+  const scaleX = 1280 / rect.width;
+  const scaleY = 720 / rect.height;
+  const rawX = Math.round(Math.max(0, Math.min(1280, clickX * scaleX)));
+  const rawY = Math.round(Math.max(0, Math.min(720, clickY * scaleY)));
+
+  calibrationCorners.push({
+    display: [clickX, clickY],
+    raw: [rawX, rawY]
+  });
+
+  updateCalibrationInstruction();
+  drawCalibrationOverlay();
+}
+
+function resetCalibrationCorners() {
+  calibrationCorners = [];
+  updateCalibrationInstruction();
+  drawCalibrationOverlay();
+}
+
+function drawCalibrationOverlay() {
+  if (!calibCtx || !calibrationCanvas) return;
+  calibCtx.clearRect(0, 0, calibrationCanvas.width, calibrationCanvas.height);
+
+  const n = calibrationCorners.length;
+  if (n === 0) return;
+
+  
+  if (n > 1) {
+    calibCtx.beginPath();
+    calibCtx.moveTo(calibrationCorners[0].display[0], calibrationCorners[0].display[1]);
+    for (let i = 1; i < n; i++) {
+      calibCtx.lineTo(calibrationCorners[i].display[0], calibrationCorners[i].display[1]);
+    }
+    if (n === 4) {
+      calibCtx.closePath();
+      calibCtx.fillStyle = 'rgba(16, 185, 129, 0.15)';
+      calibCtx.fill();
+    }
+    calibCtx.strokeStyle = n === 4 ? '#10b981' : '#06b6d4';
+    calibCtx.lineWidth = 2;
+    calibCtx.stroke();
+  }
+
+  
+  calibrationCorners.forEach((pt, idx) => {
+    const [x, y] = pt.display;
+    const color = CALIB_COLORS[idx];
+
+    
+    calibCtx.beginPath();
+    calibCtx.arc(x, y, 9, 0, Math.PI * 2);
+    calibCtx.fillStyle = color;
+    calibCtx.shadowColor = color;
+    calibCtx.shadowBlur = 10;
+    calibCtx.fill();
+    calibCtx.shadowBlur = 0;
+
+    
+    calibCtx.beginPath();
+    calibCtx.arc(x, y, 3, 0, Math.PI * 2);
+    calibCtx.fillStyle = '#ffffff';
+    calibCtx.fill();
+
+    
+    calibCtx.font = 'bold 12px "JetBrains Mono", sans-serif';
+    calibCtx.fillStyle = '#ffffff';
+    calibCtx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+    calibCtx.lineWidth = 3;
+    const label = `${idx + 1}. ${CALIB_LABELS[idx]}`;
+    calibCtx.strokeText(label, x + 14, y + 4);
+    calibCtx.fillText(label, x + 14, y + 4);
+  });
+}
+
+async function saveCalibration() {
+  if (calibrationCorners.length !== 4) {
+    alert('กรุณาคลิกให้ครบทั้ง 4 มุมก่อนบันทึก');
+    return;
+  }
+
+  const payload = {
+    corners: calibrationCorners.map(c => c.raw)
+  };
+
+  try {
+    saveCalibBtn.disabled = true;
+    saveCalibBtn.textContent = '⏳ กำลังบันทึก...';
+
+    const res = await fetch('/api/calibration/save_corners', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || 'บันทึกไม่สำเร็จ');
+    }
+
+    alert('✅ Calibrate บอร์ดสำเร็จ!\nระบบจะจำตำแหน่งบอร์ดนี้ทันที');
+    exitCalibrationMode();
+    await loadCalibrationStatus();
+
+  } catch (err) {
+    alert('เกิดข้อผิดพลาดในการบันทึก: ' + err.message);
+    saveCalibBtn.disabled = false;
+    saveCalibBtn.textContent = '💾 บันทึก';
+  }
+}
+
+async function clearCalibration() {
+  if (!confirm('คุณต้องการลบข้อมูล Calibration ทั้งหมดใช่หรือไม่?')) return;
+
+  try {
+    const res = await fetch('/api/calibration/clear', { method: 'POST' });
+    if (res.ok) {
+      alert('ลบข้อมูล Calibration เรียบร้อย');
+      await loadCalibrationStatus();
+    }
+  } catch (err) {
+    alert('เกิดข้อผิดพลาดในการลบ: ' + err.message);
+  }
+}
+
+function initTheme() {
+  const savedTheme = localStorage.getItem('pcb_theme') || 'light';
+  applyTheme(savedTheme);
+
+  const themeToggleBtn = document.getElementById('themeToggleBtn');
+  if (themeToggleBtn) {
+    themeToggleBtn.addEventListener('click', () => {
+      const isDark = document.body.classList.contains('dark-theme');
+      const newTheme = isDark ? 'light' : 'dark';
+      applyTheme(newTheme);
+      localStorage.setItem('pcb_theme', newTheme);
+    });
+  }
+}
+
+function applyTheme(theme) {
+  const themeToggleIcon = document.getElementById('themeToggleIcon');
+  const themeToggleText = document.getElementById('themeToggleText');
+  if (theme === 'dark') {
+    document.body.classList.add('dark-theme');
+    if (themeToggleIcon) themeToggleIcon.textContent = '☀️';
+    if (themeToggleText) themeToggleText.textContent = 'โหมดสว่าง';
+  } else {
+    document.body.classList.remove('dark-theme');
+    if (themeToggleIcon) themeToggleIcon.textContent = '🌙';
+    if (themeToggleText) themeToggleText.textContent = 'โหมดมืด';
+  }
 }

@@ -204,7 +204,7 @@ def stop_camera_stream():
     return {"status": "ok", "active": False}
 
 @app.get("/api/camera/stream")
-def get_camera_stream():
+async def get_camera_stream():
     if not camera_service.is_active():
         ok = camera_service.start(0)
         if not ok:
@@ -243,10 +243,6 @@ def capture_camera_snapshot():
         return JSONResponse(content=result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-# =============================================================
-# Calibration Endpoints
-# =============================================================
 
 class CornersPayload(BaseModel):
     corners: List[List[float]]
